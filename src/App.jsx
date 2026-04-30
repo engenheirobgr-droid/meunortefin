@@ -2569,6 +2569,7 @@ const getGreeting = () => {
                             selectedIds={selectedIds}
                             selectedMonth={selectedMonth}
                             selectionMode={selectionMode}
+                            setSelectedAssetHistory={setSelectedAssetHistory}
                             setActiveBar={setActiveBar}
                             setExpandedTxId={setExpandedTxId}
                             setExtratoMode={setExtratoMode}
@@ -2591,7 +2592,9 @@ const getGreeting = () => {
                             TrendingUp={TrendingUp}
                             uniqueBanks={uniqueBanks}
                             USER_CONFIG={USER_CONFIG}
+                            Users={Users}
                             viewMode={viewMode}
+                            FIXED_INCOME_CATEGORIES={FIXED_INCOME_CATEGORIES}
                             X={X}
                         />
                     )}

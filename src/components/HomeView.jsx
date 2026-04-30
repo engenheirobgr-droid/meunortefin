@@ -37,6 +37,7 @@ export default function HomeView(props) {
         selectedIds,
         selectedMonth,
         selectionMode,
+        setSelectedAssetHistory,
         setActiveBar,
         setExpandedTxId,
         setExtratoMode,
@@ -59,7 +60,9 @@ export default function HomeView(props) {
         TrendingUp,
         uniqueBanks,
         USER_CONFIG,
+        Users,
         viewMode,
+        FIXED_INCOME_CATEGORIES,
         X
     } = props;
 
