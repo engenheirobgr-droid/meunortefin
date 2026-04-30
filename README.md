@@ -8,6 +8,7 @@ Migracao em andamento do app financeiro de HTML unico para uma SPA React organiz
 2. Preencha as variaveis `VITE_FIREBASE_*`.
 3. Defina `VITE_BRAPI_TOKEN`.
 4. `VITE_GEMINI_API_KEY` e opcional. Se ficar vazio, a chave pode continuar sendo informada pela tela de configuracoes.
+5. Para publicar em GitHub Pages de um repo proprio, ajuste `VITE_PUBLIC_BASE` ou deixe o workflow preencher isso automaticamente.
 
 ## Scripts
 
@@ -36,6 +37,19 @@ Fluxo basico:
 1. `npm install`
 2. `npm run mobile:sync`
 3. `npm run mobile:open:android`
+
+## GitHub Pages
+
+O projeto ja inclui workflow em `.github/workflows/deploy-pages.yml`.
+
+Para publicar em um repo novo:
+
+1. Crie um repositorio vazio no GitHub.
+2. Configure os `Secrets and variables` com as chaves `VITE_*` do `.env.example`.
+3. Envie este projeto para a branch `main` do repo novo.
+4. Em `Settings > Pages`, deixe a fonte como `GitHub Actions`.
+
+O workflow ja calcula a `base` automaticamente como `/<nome-do-repo>/`, que e o formato esperado para GitHub Pages em repositorios de projeto.
 
 ## Estrategia de migracao
 
