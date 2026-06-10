@@ -366,8 +366,10 @@ export default function HomeView(props) {
                                 <div className="animate-fade-in -mt-4 bg-slate-900/40 rounded-3xl overflow-hidden shadow-sm">
                                     {/* BANNER DE FATURA (só no mês da fatura, com Previsão ON) */}
                                     {(() => {
-                                        // Busca em fullList (todas as datas) pois a compra está no mês da compra, não no mês da fatura
-                                        const cardItems = data.fullList.filter(t => t.isCardExpense && t.invoiceMonth === selectedMonth && t.isProjection);
+                                        // CORREÇÃO (10/06/26): Usar data.list para respeitar escopo pessoal/compartilhado
+                                        // Antes: data.fullList (mostrava faturas pessoais em modo conjunto)
+                                        // Depois: data.list (filtra automaticamente por isShared)
+                                        const cardItems = data.list.filter(t => t.isCardExpense && t.invoiceMonth === selectedMonth && t.isProjection);
                                         if (!isForecast || cardItems.length === 0) return null;
                                         const total = cardItems.reduce((s, t) => s + Number(t.amount), 0);
                                         return (
