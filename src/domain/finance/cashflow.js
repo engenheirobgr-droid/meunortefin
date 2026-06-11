@@ -21,8 +21,18 @@ export function filterTransactionByUniverse(transaction, { profile, viewMode }) 
   return myPrivate || iCreatedAndPaid || partnerCreatedAndIPaid;
 }
 
+export function isCardExpenseTransaction(transaction) {
+  if (!transaction || transaction.isSettlement) return false;
+
+  if (transaction.isCardExpense === true) return true;
+
+  return transaction.type === 'expense'
+    && typeof transaction.invoiceMonth === 'string'
+    && /^\d{4}-\d{2}$/.test(transaction.invoiceMonth);
+}
+
 export function filterCardInvoiceItemForPayment(transaction, { profile, viewMode }) {
-  if (!transaction.isCardExpense || !transaction.isProjection || transaction.isSettlement) return false;
+  if (!isCardExpenseTransaction(transaction) || !transaction.isProjection || transaction.isSettlement) return false;
   if (transaction.ownerId !== profile) return false;
 
   if (viewMode === 'joint') return transaction.isShared === true;

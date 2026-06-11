@@ -1,5 +1,5 @@
 import React from 'react';
-import { filterCardInvoiceItemForPayment } from '../domain/finance/cashflow.js';
+import { filterCardInvoiceItemForPayment, isCardExpenseTransaction } from '../domain/finance/cashflow.js';
 
 export default function HomeView(props) {
     const {
@@ -587,7 +587,7 @@ export default function HomeView(props) {
                                                             <span>{t.date.split('-')[2]}/{t.date.split('-')[1]}</span>
                                                             <span className="opacity-30">•</span>
                                                             <span className="truncate max-w-[150px]">{t.category} {t.subCategory ? `(${t.subCategory})` : ''}</span>
-                                                             {t.isCardExpense && t.invoiceMonth && (
+                                                             {isCardExpenseTransaction(t) && t.invoiceMonth && (
                                                                 <span className="text-sky-400 shrink-0 whitespace-nowrap">
                                                                     💳 Fat: {(() => { const [y,m] = t.invoiceMonth.split('-'); return new Date(y,m-1,1).toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}); })()}
                                                                 </span>

@@ -7,6 +7,7 @@ import {
     calculateMonthlyCashFlow,
     calculatePreviousBalance,
     filterCardInvoiceItemForPayment,
+    isCardExpenseTransaction,
     filterTransactionByUniverse,
     normalizeSettlementsForCurrentMonth
 } from './domain/finance/cashflow.js';
@@ -326,7 +327,7 @@ const getGreeting = () => {
 
             // Filtra tudo que aconteceu ANTES deste mês, respeitando o mesmo filtro de mundo (Segurança Total)
             const previousTxs = fullList
-                .filter(t => t.date < startOfSelectedMonth && (!t.isProjection || (isForecast && t.isCardExpense))) // Em prev, inclui despesas de cartão (fantasmas intencionais)
+                .filter(t => t.date < startOfSelectedMonth && (!t.isProjection || (isForecast && isCardExpenseTransaction(t)))) // Em prev, inclui despesas de cartão (fantasmas intencionais)
                 .filter(filterByUniverse); // Aplica a regra: Só soma o que é MEU (se pessoal) ou NOSSO (se conjunto)
 
             // Calcula o saldo historico
@@ -1285,7 +1286,6 @@ const getGreeting = () => {
             const collRef = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('transactions');
             try {
                 const snap = await collRef
-                    .where('isCardExpense', '==', true)
                     .where('invoiceMonth', '==', invoiceMonth)
                     .where('ownerId', '==', profile)
                     .where('isProjection', '==', true)
@@ -1369,7 +1369,7 @@ const getGreeting = () => {
 
             // Projeções recorrentes puras não existem no banco, mas compras de cartão
             // são salvas como projeções intencionais até a liquidação da fatura.
-            const realTxs = selectedTxs.filter(t => !t.isProjection || t.isCardExpense);
+            const realTxs = selectedTxs.filter(t => !t.isProjection || isCardExpenseTransaction(t));
 
             // Se só houver ghosts selecionados, apenas limpa a seleção e sai (eles "somem" visualmente)
             if (realTxs.length === 0) {
@@ -1524,7 +1524,7 @@ const getGreeting = () => {
             if (tx.isSettlement) return; // GUARD: acertos não são editáveis pelo form
             // FASE 2: Se for projeção (Fantasma), id vira null (cria novo), mas mantém os dados para facilitar o lançamento
             // Card expenses are intentional ghosts — they ARE editable. Only block pure projection ghosts (recurring).
-            setEditingId((tx.isProjection && !tx.isCardExpense) ? null : tx.id);
+            setEditingId((tx.isProjection && !isCardExpenseTransaction(tx)) ? null : tx.id);
 
             setFTitle(tx.title);
             setFAmount(tx.amount);
@@ -1540,7 +1540,7 @@ const getGreeting = () => {
             setFDreamId(tx.dreamId || '');
 
             setFIsProjection(tx.isProjection || false); // NOVO: Detecta se é ghost
-            setFIsCard(tx.isCardExpense || false); // Cartão de crédito
+            setFIsCard(isCardExpenseTransaction(tx)); // Cartão de crédito
             setFInvoiceMonth(tx.invoiceMonth || '');
 
             // CORREÇÃO: Ghosts NÃO herdam recorrência

@@ -39,7 +39,6 @@ export default function TransactionModal({
     PieChart,
     profile,
     RefreshCw,
-    saveTx,
     setFAmount,
     setFBank,
     setFCat,
@@ -89,7 +88,7 @@ export default function TransactionModal({
                     <button onClick={onClose} className="bg-slate-800 p-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"><X size={24} /></button>
                 </div>
 
-                <form onSubmit={onSubmit || saveTx} className="space-y-5">
+                <form onSubmit={onSubmit} className="space-y-5">
                     <div className="bg-[#0f172a] p-1.5 rounded-2xl flex flex-wrap gap-1 relative border border-white/5">
                         {['expense', 'income', 'investment'].map((type) => (
                             <button type="button" key={type} onClick={() => { setFType(type); setFCat(''); setIsSell(false); }} className={`flex-1 py-3 rounded-xl text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 ${fType === type ? (type === 'expense' ? 'bg-rose-600 text-white shadow-lg' : type === 'income' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-indigo-600 text-white shadow-lg') : 'text-slate-500 hover:text-slate-300'}`}>

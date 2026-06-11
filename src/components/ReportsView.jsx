@@ -16,7 +16,6 @@ export default function ReportsView({
     PieChart,
     setPricesModal,
     Sparkles,
-    Target,
     TrendingUp,
     Trophy,
     viewMode,

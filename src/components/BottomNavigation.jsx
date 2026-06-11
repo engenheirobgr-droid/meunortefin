@@ -2,7 +2,6 @@ import React from 'react';
 
 export default function BottomNavigation({
     BarChart3,
-    Compass,
     FileText,
     Home,
     importScope,
