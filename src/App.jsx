@@ -1367,8 +1367,9 @@ const getGreeting = () => {
             // 1. Identifica transações selecionadas na lista completa (para pegar o groupId)
             const selectedTxs = txs.filter(t => selectedIds.has(t.id));
 
-            // NOVO: Filtra para ignorar ghosts (projeções) que não existem no banco
-            const realTxs = selectedTxs.filter(t => !t.isProjection);
+            // Projeções recorrentes puras não existem no banco, mas compras de cartão
+            // são salvas como projeções intencionais até a liquidação da fatura.
+            const realTxs = selectedTxs.filter(t => !t.isProjection || t.isCardExpense);
 
             // Se só houver ghosts selecionados, apenas limpa a seleção e sai (eles "somem" visualmente)
             if (realTxs.length === 0) {
@@ -2557,6 +2558,7 @@ const getGreeting = () => {
                             fSettleBank={fSettleBank}
                             formatCurrency={formatCurrency}
                             handlePayCardInvoice={handlePayCardInvoice}
+                            handleEdit={handleEdit}
                             handleQuickDividend={handleQuickDividend}
                             handleQuickInvest={handleQuickInvest}
                             hideValues={hideValues}

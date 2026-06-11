@@ -22,6 +22,7 @@ export default function HomeView(props) {
         fSettleBank,
         formatCurrency,
         handlePayCardInvoice,
+        handleEdit,
         handleQuickDividend,
         handleQuickInvest,
         hideValues,
