@@ -32,6 +32,8 @@ import { BRAPI_TOKEN, DEFAULT_GEMINI_API_KEY, GEMINI_MODELS_TO_TRY, MONTH_NAMES_
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 const { useState, useEffect, useMemo, useRef } = React;
+const APP_VERSION = __APP_VERSION__;
+const APP_BUILD_STAMP = __APP_BUILD_STAMP__;
 
 const {
     Plus, Wallet, X, Users, ArrowRightLeft, User, PiggyBank, Target,
@@ -2700,6 +2702,8 @@ const getGreeting = () => {
                     settingsModal && (
                         <SettingsModal
                             apiKey={apiKey}
+                            appBuildStamp={APP_BUILD_STAMP}
+                            appVersion={APP_VERSION}
                             onApiKeyChange={setApiKey}
                             onClose={() => setSettingsModal(false)}
                             onExportData={exportData}

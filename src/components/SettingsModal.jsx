@@ -2,6 +2,8 @@ import React from 'react';
 
 export default function SettingsModal({
     apiKey,
+    appBuildStamp,
+    appVersion,
     onApiKeyChange,
     onClose,
     onExportData,
@@ -44,6 +46,15 @@ export default function SettingsModal({
                     <button onClick={onExportData} className="w-full border border-white/10 text-slate-300 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-white/5 transition-colors">
                         <Download size={18} /> Exportar Dados (Excel)
                     </button>
+
+                    <div className="px-1">
+                        <p className="text-[11px] text-slate-500">
+                            Versao {appVersion}
+                        </p>
+                        <p className="text-[11px] text-slate-600 break-all">
+                            Build {appBuildStamp}
+                        </p>
+                    </div>
 
                     <div className="pt-4 mt-4 border-t border-white/10">
                         <button onClick={onResetDatabase} className="w-full bg-rose-500/10 text-rose-400 border border-rose-500/20 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-rose-500/20 transition-colors">
