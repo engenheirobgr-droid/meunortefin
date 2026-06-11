@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   calculateMonthlyCashFlow,
   calculatePreviousBalance,
+  filterCardInvoiceItemForPayment,
   filterTransactionByUniverse,
   normalizeSettlementsForCurrentMonth
 } from '../src/domain/finance/cashflow.js';
@@ -18,6 +19,20 @@ const context = { profile: 'bruno', viewMode: 'personal' };
   assert.equal(filterTransactionByUniverse(sharedPaidByMe, context), true);
   assert.equal(filterTransactionByUniverse(sharedPaidByPartnerFromPartnerEntry, context), false);
   assert.equal(filterTransactionByUniverse(partnerCreatedAndIPaid, context), true);
+}
+
+{
+  const myPrivateCard = { isCardExpense: true, isProjection: true, ownerId: 'bruno', isShared: false };
+  const mySharedCard = { isCardExpense: true, isProjection: true, ownerId: 'bruno', isShared: true };
+  const partnerPrivateCard = { isCardExpense: true, isProjection: true, ownerId: 'maiara', isShared: false };
+  const paidCard = { isCardExpense: true, isProjection: false, ownerId: 'bruno', isShared: false };
+
+  assert.equal(filterCardInvoiceItemForPayment(myPrivateCard, context), true);
+  assert.equal(filterCardInvoiceItemForPayment(mySharedCard, context), true);
+  assert.equal(filterCardInvoiceItemForPayment(partnerPrivateCard, context), false);
+  assert.equal(filterCardInvoiceItemForPayment(paidCard, context), false);
+  assert.equal(filterCardInvoiceItemForPayment(myPrivateCard, { profile: 'bruno', viewMode: 'joint' }), false);
+  assert.equal(filterCardInvoiceItemForPayment(mySharedCard, { profile: 'bruno', viewMode: 'joint' }), true);
 }
 
 {

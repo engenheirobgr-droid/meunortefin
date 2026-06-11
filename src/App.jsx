@@ -6,6 +6,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import {
     calculateMonthlyCashFlow,
     calculatePreviousBalance,
+    filterCardInvoiceItemForPayment,
     filterTransactionByUniverse,
     normalizeSettlementsForCurrentMonth
 } from './domain/finance/cashflow.js';
@@ -1289,10 +1290,13 @@ const getGreeting = () => {
                     .where('ownerId', '==', profile)
                     .where('isProjection', '==', true)
                     .get();
-                if (snap.empty) return;
+                const docsToPay = snap.docs.filter(doc =>
+                    filterCardInvoiceItemForPayment(doc.data(), { profile, viewMode })
+                );
+                if (docsToPay.length === 0) return;
                 // Máx 500 docs por batch (limite do Firestore). Se houver mais, múltiplos batches sequenciais.
                 const chunks = [];
-                for (let i = 0; i < snap.docs.length; i += 500) chunks.push(snap.docs.slice(i, i + 500));
+                for (let i = 0; i < docsToPay.length; i += 500) chunks.push(docsToPay.slice(i, i + 500));
                 for (const chunk of chunks) {
                     const b = db.batch();
                     chunk.forEach(doc => b.update(doc.ref, { isProjection: false }));
@@ -1840,10 +1844,10 @@ const getGreeting = () => {
 
         // CORREÇÃO INTELIGENTE (Pagar vs Receber)
         const settleDebt = async () => {
-            const numericSettle = Number(settleAmount);
-            if (!numericSettle || numericSettle <= 0) return; // --- FIX B2 v83 ---
             // Aceita o valor do input (parcial) ou o total se o input estiver vazio (segurança)
-            const inputVal = numericSettle; // --- FIX v82 ---
+            const rawSettle = String(settleAmount).trim();
+            const inputVal = rawSettle ? Number(rawSettle) : 0; // --- FIX v82 ---
+            if (rawSettle && (!inputVal || inputVal <= 0)) return; // --- FIX B2 v83 ---
 
             // CORREÇÃO: O valor digitado é apenas a MAGNITUDE. 
             // A direção (Pagar vs Receber) é determinada pelo estado atual da Dívida.

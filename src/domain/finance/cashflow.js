@@ -21,6 +21,15 @@ export function filterTransactionByUniverse(transaction, { profile, viewMode }) 
   return myPrivate || iCreatedAndPaid || partnerCreatedAndIPaid;
 }
 
+export function filterCardInvoiceItemForPayment(transaction, { profile, viewMode }) {
+  if (!transaction.isCardExpense || !transaction.isProjection || transaction.isSettlement) return false;
+  if (transaction.ownerId !== profile) return false;
+
+  if (viewMode === 'joint') return transaction.isShared === true;
+
+  return true;
+}
+
 export function calculatePreviousBalance(previousTransactions, { profile, viewMode }) {
   let previousBalance = 0;
   let accumInvest = 0;
