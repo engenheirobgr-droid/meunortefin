@@ -1,5 +1,8 @@
 export const GEMINI_MODELS_TO_TRY = [
-  'gemini-2.5-flash'
+  'gemini-3.1-flash-lite',
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-3.5-flash'
 ];
 
 export const MONTH_NAMES_EN_SHORT = [
