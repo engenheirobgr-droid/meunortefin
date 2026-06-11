@@ -31,6 +31,14 @@ export function isCardExpenseTransaction(transaction) {
     && /^\d{4}-\d{2}$/.test(transaction.invoiceMonth);
 }
 
+export function isGeneratedGhostTransaction(transaction) {
+  return typeof transaction?.id === 'string' && transaction.id.startsWith('ghost_');
+}
+
+export function isPersistedTransaction(transaction) {
+  return Boolean(transaction?.id) && !isGeneratedGhostTransaction(transaction);
+}
+
 export function filterCardInvoiceItemForPayment(transaction, { profile, viewMode }) {
   if (!isCardExpenseTransaction(transaction) || !transaction.isProjection || transaction.isSettlement) return false;
   if (transaction.ownerId !== profile) return false;

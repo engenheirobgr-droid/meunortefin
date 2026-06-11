@@ -8,6 +8,8 @@ import {
     calculatePreviousBalance,
     filterCardInvoiceItemForPayment,
     isCardExpenseTransaction,
+    isGeneratedGhostTransaction,
+    isPersistedTransaction,
     filterTransactionByUniverse,
     normalizeSettlementsForCurrentMonth
 } from './domain/finance/cashflow.js';
@@ -1371,7 +1373,7 @@ const getGreeting = () => {
 
             // Projeções recorrentes puras não existem no banco, mas compras de cartão
             // são salvas como projeções intencionais até a liquidação da fatura.
-            const realTxs = selectedTxs.filter(t => !t.isProjection || isCardExpenseTransaction(t));
+            const realTxs = selectedTxs.filter(isPersistedTransaction);
 
             // Se só houver ghosts selecionados, apenas limpa a seleção e sai (eles "somem" visualmente)
             if (realTxs.length === 0) {
@@ -1526,7 +1528,7 @@ const getGreeting = () => {
             if (tx.isSettlement) return; // GUARD: acertos não são editáveis pelo form
             // FASE 2: Se for projeção (Fantasma), id vira null (cria novo), mas mantém os dados para facilitar o lançamento
             // Card expenses are intentional ghosts — they ARE editable. Only block pure projection ghosts (recurring).
-            setEditingId((tx.isProjection && !isCardExpenseTransaction(tx)) ? null : tx.id);
+            setEditingId(isGeneratedGhostTransaction(tx) ? null : tx.id);
 
             setFTitle(tx.title);
             setFAmount(tx.amount);
@@ -1541,7 +1543,7 @@ const getGreeting = () => {
             setFRecurrenceCount(tx.recurrenceCount || 12);
             setFDreamId(tx.dreamId || '');
 
-            setFIsProjection(tx.isProjection || false); // NOVO: Detecta se é ghost
+            setFIsProjection(isGeneratedGhostTransaction(tx) || isCardExpenseTransaction(tx)); // Ghost gerado ou despesa de cartão persistida
             setFIsCard(isCardExpenseTransaction(tx)); // Cartão de crédito
             setFInvoiceMonth(tx.invoiceMonth || '');
 
