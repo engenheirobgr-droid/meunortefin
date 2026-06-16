@@ -37,6 +37,13 @@ const { useState, useEffect, useMemo, useRef } = React;
 const APP_VERSION = __APP_VERSION__;
 const APP_BUILD_STAMP = __APP_BUILD_STAMP__;
 
+const getRelativeMonthKey = (monthKey, offset) => {
+    const [year, month] = monthKey.split('-').map(Number);
+    return new Date(year, month - 1 + offset, 1).toISOString().slice(0, 7);
+};
+
+const normalizePriceSnapshot = (snapshot) => snapshot?.prices || snapshot || {};
+
 const {
     Plus, Wallet, X, Users, ArrowRightLeft, User, PiggyBank, Target,
     PieChart, ListIcon, BarChart3, Home, Settings, LogOut,
@@ -177,6 +184,8 @@ const getGreeting = () => {
 
         // NOVOS ESTADOS PARA INVESTIMENTOS (CARTEIRA)
         const [currentPrices, setCurrentPrices] = useState({}); // Mapa: Ticker -> Preço Atual
+        const [priceSnapshots, setPriceSnapshots] = useState({});
+        const persistedPricesRef = useRef({});
         const [pricesModal, setPricesModal] = useState(false);
         const [isFetchingPrices, setIsFetchingPrices] = useState(false); // Loading state para IA
         const [fQty, setFQty] = useState('');
@@ -239,7 +248,16 @@ const getGreeting = () => {
 
             // Carregar Cotações Manuais (Carteira)
             const unsubPrices = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('settings').doc('assetPrices')
-                .onSnapshot(s => { if (s.exists) setCurrentPrices(s.data()); });
+                .onSnapshot(s => {
+                    if (s.exists) {
+                        const prices = s.data();
+                        persistedPricesRef.current = prices;
+                        setCurrentPrices(prices);
+                    }
+                });
+
+            const unsubPriceSnapshots = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('settings').doc('assetPriceSnapshots')
+                .onSnapshot(s => { setPriceSnapshots(s.exists ? (s.data().months || {}) : {}); });
 
             // --- NOVO: CARREGAR TAREFAS ---
             const unsubChores = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('chores')
@@ -260,7 +278,7 @@ const getGreeting = () => {
             const unsubChoreSettings = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('settings').doc('chores')
                 .onSnapshot(s => { if (s.exists) setWeekCycle(s.data().weekCycle || 0); });
 
-            return () => { unsubTx(); unsubPersonal(); unsubJoint(); unsubDreams(); unsubPrices(); unsubChores(); unsubShopping(); unsubChoreSettings(); }; // <--- ADICIONE unsubShopping() NO RETURN
+            return () => { unsubTx(); unsubPersonal(); unsubJoint(); unsubDreams(); unsubPrices(); unsubPriceSnapshots(); unsubChores(); unsubShopping(); unsubChoreSettings(); }; // <--- ADICIONE unsubShopping() NO RETURN
         }, [user]);
 
         // --- BLOCO DE DADOS CORRIGIDO (v27) ---
@@ -355,7 +373,7 @@ const getGreeting = () => {
             // --- 3. CÁLCULOS DE CAIXA (Saldos e Relatórios) ---
             // --- 3. CÁLCULOS DE CAIXA (Saldos e Relatórios) ---
             const {
-                inc, exp, inv, resg, strictScopeInv, strictScopeResg,
+                inc, exp, earningIncome, spendingExp, inv, resg, strictScopeInv, strictScopeResg,
                 dailyCatMap, incomeCatMap, dailyBankFlow, monthlyDividends,
                 sharedSpends, bal, totalOutflows
             } = calculateMonthlyCashFlow(currentMonthList, { profile, viewMode });
@@ -543,11 +561,19 @@ const getGreeting = () => {
             let investBankFlow = {};
             let investCatMap = {};
 
-            const calculateScopedPortfolioTotal = (investmentList) =>
-                calculatePortfolioTotal(investmentList, { currentPrices, viewMode });
+            const getPricesForMonth = (monthKey) => {
+                const snapshot = normalizePriceSnapshot(priceSnapshots[monthKey]);
+                return Object.keys(snapshot).length > 0 ? snapshot : currentPrices;
+            };
+
+            const calculateScopedPortfolioTotal = (investmentList, prices = currentPrices) =>
+                calculatePortfolioTotal(investmentList, { currentPrices: prices, viewMode });
 
             // Calcula Totais
-            portfolioPreviousTotal = calculateScopedPortfolioTotal(prevInvestments);
+            portfolioPreviousTotal = calculateScopedPortfolioTotal(
+                prevInvestments,
+                getPricesForMonth(getRelativeMonthKey(selectedMonth, -1))
+            );
 
             const detailedPortfolio = buildDetailedPortfolio(historicalInvestments, {
                 currentPrices,
@@ -706,10 +732,14 @@ const getGreeting = () => {
                 if (isIncome) {
                     type = 'in';
                     if (b.category === 'Dividendos') realized = monthlyDividends;
-                    else realized = currentMonthList.filter(t => t.type === 'income' && (t.category === b.category || t.subCategory === b.category)).reduce((acc, t) => acc + Number(t.amount), 0);
+                    else realized = currentMonthList
+                        .filter(t => !t.isSettlement && t.type === 'income' && (t.category === b.category || t.subCategory === b.category))
+                        .reduce((acc, t) => acc + Number(t.amount), 0);
                 } else {
                     type = 'out';
-                    realized = currentMonthList.filter(t => (t.type === 'expense' || t.type === 'investment') && (t.category === b.category || t.subCategory === b.category)).reduce((acc, t) => acc + Number(t.amount), 0);
+                    realized = currentMonthList
+                        .filter(t => !t.isSettlement && (t.type === 'expense' || t.type === 'investment') && (t.category === b.category || t.subCategory === b.category))
+                        .reduce((acc, t) => acc + Number(t.amount), 0);
                 }
                 let icon = '🎯';
                 [...CATEGORIES.expense, ...CATEGORIES.income, ...CATEGORIES.investment].forEach(c => {
@@ -726,7 +756,7 @@ const getGreeting = () => {
             const allCharts = Object.keys(dailyCatMap).map(k => ({
                 name: k,
                 amount: dailyCatMap[k],
-                pct: exp > 0 ? (dailyCatMap[k] / exp) * 100 : 0,
+                pct: spendingExp > 0 ? (dailyCatMap[k] / spendingExp) * 100 : 0,
                 icon: CATEGORIES.expense.find(c => c.name === k)?.icon || '🏷️',
                 color: CATEGORIES.expense.find(c => c.name === k)?.barColor || 'bg-gray-500'
             })).sort((a, b) => b.amount - a.amount);
@@ -742,7 +772,7 @@ const getGreeting = () => {
                 top5.push({
                     name: 'Outros',
                     amount: othersAmount,
-                    pct: exp > 0 ? (othersAmount / exp) * 100 : 0,
+                    pct: spendingExp > 0 ? (othersAmount / spendingExp) * 100 : 0,
                     icon: '📦',
                     color: 'bg-slate-500' // Cor neutra para o resíduo
                 });
@@ -884,7 +914,7 @@ const getGreeting = () => {
                 });
 
                 // Usando a função oficial do Dashboard para avaliar os ativos que tínhamos na época
-                const truePatrimony = calculateScopedPortfolioTotal(investmentsToDate);
+                const truePatrimony = calculateScopedPortfolioTotal(investmentsToDate, getPricesForMonth(h.month));
 
                 return {
                     ...h,
@@ -923,12 +953,12 @@ const getGreeting = () => {
                 pendingSettlements,
                 planning, dreamsProgress, netWorth, economicExp,
                 // CORREÇÃO FINAL: totalNetWorth agora reflete Saldo + Valor Atual (Marked to Market)
-                analysis: { daily: { charts: dailyCharts, bankFlow: dailyBankFlow }, invest: { charts: investCharts, bankFlow: investBankFlow }, history: finalHistory, health: { savingsRate: inc > 0 ? ((inc - exp) / inc) * 100 : 0, burnRate: exp, coverage: exp > 0 ? (portfolioCurrentTotal / exp) : 0, freedom: exp > 0 ? (monthlyDividends / exp) * 100 : 0, investRate: inc > 0 ? (inv / inc) * 100 : 0, totalNetWorth: (previousBalance + bal) + portfolioCurrentTotal, totalOutflows: totalOutflows, strictScopeInv: strictScopeInv } },
+                analysis: { daily: { charts: dailyCharts, bankFlow: dailyBankFlow }, invest: { charts: investCharts, bankFlow: investBankFlow }, history: finalHistory, health: { savingsRate: earningIncome > 0 ? ((earningIncome - spendingExp) / earningIncome) * 100 : 0, burnRate: spendingExp, coverage: spendingExp > 0 ? (portfolioCurrentTotal / spendingExp) : 0, freedom: spendingExp > 0 ? (monthlyDividends / spendingExp) * 100 : 0, investRate: earningIncome > 0 ? (inv / earningIncome) * 100 : 0, totalNetWorth: (previousBalance + bal) + portfolioCurrentTotal, totalOutflows: totalOutflows, strictScopeInv: strictScopeInv } },
                 investData: { totalInvested, allTimeInv, allTimeResgCost, totalCurrent: portfolioCurrentTotal, previousTotal: portfolioPreviousTotal, profit, yieldPct, byBank: investBankFlow, byType: investCatMap, dividends: monthlyDividends, totalDividends, portfolio: Object.values(portfolio).sort((a, b) => b.currentTotal - a.currentTotal) }
             };
             // --- CORREÇÃO: ADICIONADO 'isForecast' NAS DEPENDÊNCIAS ABAIXO ---
             // --- CORREÇÃO: ADICIONADO 'isForecast' e 'fullList' NAS DEPENDÊNCIAS ABAIXO ---
-        }, [txs, profile, viewMode, budgets, selectedMonth, dashboardMode, currentPrices, dreams, isForecast]);
+        }, [txs, profile, viewMode, budgets, selectedMonth, dashboardMode, currentPrices, priceSnapshots, dreams, isForecast]);
 
         // --- EXPORTAR EXCEL ---
         const exportData = () => {
@@ -2038,6 +2068,7 @@ const getGreeting = () => {
 
                 // 4. Apagar Cotações Manuais e outras configs
                 batch.delete(basePath.collection('settings').doc('assetPrices'));
+                batch.delete(basePath.collection('settings').doc('assetPriceSnapshots'));
 
                 // Executar tudo
                 await batch.commit();
@@ -2167,7 +2198,7 @@ const getGreeting = () => {
                 }
 
                 if (successCount > 0) {
-                    setCurrentPrices(prev => ({ ...prev, ...sanitizedPrices }));
+                    await saveAssetPrices({ ...currentPrices, ...sanitizedPrices });
                     alert(`✅ Preços atualizados para ${successCount} ativos (Tempo Real via B3)!`);
                 } else {
                     alert("⚠️ A API conectou, mas não encontrou esses tickers na nuvem da B3. Verifique se os nomes (ex: ITSA4) estão exatos.");
@@ -2178,6 +2209,36 @@ const getGreeting = () => {
             } finally {
                 setIsFetchingPrices(false);
             }
+        };
+
+        const saveAssetPrices = async (nextPrices) => {
+            const currentMonthKey = new Date().toISOString().slice(0, 7);
+            const previousMonthKey = getRelativeMonthKey(currentMonthKey, -1);
+            const updatedAt = new Date().toISOString();
+            const nextSnapshots = { ...priceSnapshots };
+            const previousPersistedPrices = persistedPricesRef.current || {};
+
+            if (!nextSnapshots[previousMonthKey] && Object.keys(previousPersistedPrices).length > 0) {
+                nextSnapshots[previousMonthKey] = {
+                    prices: { ...previousPersistedPrices },
+                    updatedAt
+                };
+            }
+
+            nextSnapshots[currentMonthKey] = {
+                prices: { ...nextPrices },
+                updatedAt
+            };
+
+            const settingsRef = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('settings');
+            const batch = db.batch();
+            batch.set(settingsRef.doc('assetPrices'), nextPrices);
+            batch.set(settingsRef.doc('assetPriceSnapshots'), { months: nextSnapshots }, { merge: true });
+            await batch.commit();
+
+            setCurrentPrices(nextPrices);
+            persistedPricesRef.current = nextPrices;
+            setPriceSnapshots(nextSnapshots);
         };
 
         // UI HELPERS
@@ -2838,8 +2899,8 @@ const getGreeting = () => {
                             onClose={() => setPricesModal(false)}
                             onFetchPrices={fetchBrapiPrices}
                             onOpenAssetHistory={setSelectedAssetHistory}
-                            onSave={() => {
-                                db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('settings').doc('assetPrices').set(currentPrices);
+                            onSave={async () => {
+                                await saveAssetPrices(currentPrices);
                                 setPricesModal(false);
                             }}
                             portfolio={data.investData.portfolio}

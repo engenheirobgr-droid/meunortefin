@@ -75,28 +75,30 @@ const context = { profile: 'bruno', viewMode: 'personal' };
     { type: 'expense', amount: 800, title: 'Mercado', category: 'Alimentação', bank: 'Nubank', ownerId: 'bruno', isShared: false },
     { type: 'investment', amount: 1000, quantity: 10, title: 'Compra ABCD4', category: 'Ações BR', bank: 'XP', ownerId: 'bruno', isShared: false },
     { type: 'investment', amount: 300, quantity: -3, title: 'Venda ABCD4', category: 'Ações BR', bank: 'XP', ownerId: 'bruno', isShared: false },
-    { type: 'p2p', amount: 100, title: 'Acerto', category: 'Empréstimo/Acerto', payer: 'me', ownerId: 'bruno' }
+    { type: 'p2p', amount: 100, title: 'Acerto', category: 'Empréstimo/Acerto', payer: 'me', bank: 'Nubank', ownerId: 'bruno' },
+    { type: 'expense', amount: 50, title: 'Pagamento de Acerto', category: 'Ajuste/Reembolso', bank: 'Nubank', isSettlement: true, status: 'confirmed', ownerId: 'bruno' }
   ];
 
   const result = calculateMonthlyCashFlow(monthTransactions, context);
 
   assert.equal(result.inc, 5025);
-  assert.equal(result.exp, 900);
+  assert.equal(result.exp, 950);
+  assert.equal(result.earningIncome, 5025);
+  assert.equal(result.spendingExp, 800);
   assert.equal(result.inv, 1000);
   assert.equal(result.resg, 300);
   assert.equal(result.strictScopeInv, 1000);
   assert.equal(result.strictScopeResg, 300);
   assert.equal(result.monthlyDividends, 25);
-  assert.equal(result.bal, 3425);
-  assert.equal(result.totalOutflows, 1600);
+  assert.equal(result.bal, 3375);
+  assert.equal(result.totalOutflows, 1650);
   assert.deepEqual(result.dailyCatMap, {
-    'Alimentação': 800,
-    'Empréstimo/Acerto': 100
+    'Alimentação': 800
   });
   assert.equal(result.incomeCatMap['Salário'], 5000);
   assert.equal(result.incomeCatMap.Dividendos, 25);
-  assert.equal(result.dailyBankFlow.Nubank, 4200);
-  assert.equal(result.dailyBankFlow.XP, 325);
+  assert.equal(result.dailyBankFlow.Nubank, 4050);
+  assert.equal(result.dailyBankFlow.XP, -675);
 }
 
 {

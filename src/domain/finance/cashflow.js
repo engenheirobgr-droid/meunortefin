@@ -111,6 +111,8 @@ export function normalizeSettlementsForCurrentMonth(monthTransactions, { profile
 export function calculateMonthlyCashFlow(currentMonthList, { profile, viewMode }) {
   let inc = 0;
   let exp = 0;
+  let earningIncome = 0;
+  let spendingExp = 0;
   let inv = 0;
   let resg = 0;
   let strictScopeInv = 0;
@@ -129,10 +131,10 @@ export function calculateMonthlyCashFlow(currentMonthList, { profile, viewMode }
 
       if (transaction.type === 'expense') {
         exp += value;
-        const categoryName = transaction.category || 'Ajuste/Reembolso';
-        dailyCatMap[categoryName] = (dailyCatMap[categoryName] || 0) + value;
+        addBankFlow(dailyBankFlow, transaction.bank, -value);
       } else {
         inc += value;
+        addBankFlow(dailyBankFlow, transaction.bank, value);
       }
       return;
     }
@@ -144,22 +146,21 @@ export function calculateMonthlyCashFlow(currentMonthList, { profile, viewMode }
 
       if (iPaid) {
         exp += value;
-        const categoryName = transaction.category || 'Empréstimo/Acerto';
-        dailyCatMap[categoryName] = (dailyCatMap[categoryName] || 0) + value;
+        addBankFlow(dailyBankFlow, transaction.bank, -value);
       } else {
         inc += value;
-        const categoryName = transaction.category || 'Empréstimo/Acerto';
-        incomeCatMap[categoryName] = (incomeCatMap[categoryName] || 0) + value;
+        addBankFlow(dailyBankFlow, transaction.bank, value);
       }
       return;
     }
 
     if (transaction.type === 'income') {
       inc += value;
+      earningIncome += value;
       const categoryName = transaction.category || 'Outros';
       incomeCatMap[categoryName] = (incomeCatMap[categoryName] || 0) + value;
 
-      if (transaction.title.toLowerCase().includes('dividendo') || transaction.category === 'Dividendos') {
+      if ((transaction.title || '').toLowerCase().includes('dividendo') || transaction.category === 'Dividendos') {
         const dividendBelongsToScope = viewMode === 'joint'
           ? transaction.isShared
           : (!transaction.isShared && transaction.ownerId === profile);
@@ -170,6 +171,7 @@ export function calculateMonthlyCashFlow(currentMonthList, { profile, viewMode }
       if (transaction.bank) dailyBankFlow[transaction.bank] = (dailyBankFlow[transaction.bank] || 0) + value;
     } else if (transaction.type === 'expense') {
       exp += value;
+      spendingExp += value;
       const categoryName = transaction.category || 'Outros';
       dailyCatMap[categoryName] = (dailyCatMap[categoryName] || 0) + value;
 
@@ -202,6 +204,8 @@ export function calculateMonthlyCashFlow(currentMonthList, { profile, viewMode }
         const belongsToScope = viewMode === 'joint' ? transaction.isShared : !transaction.isShared;
         if (belongsToScope) strictScopeInv += value;
 
+        addBankFlow(dailyBankFlow, transaction.bank, -value);
+
         if (viewMode === 'joint' && transaction.isShared && transaction.ownerId) {
           const realPayerId = getRealPayerId(transaction, profile);
 
@@ -219,6 +223,8 @@ export function calculateMonthlyCashFlow(currentMonthList, { profile, viewMode }
   return {
     inc,
     exp,
+    earningIncome,
+    spendingExp,
     inv,
     resg,
     strictScopeInv,
@@ -245,4 +251,9 @@ function getRealPayerId(transaction, profile) {
   }
 
   return realPayerId;
+}
+
+function addBankFlow(bankFlow, bank, amount) {
+  if (!bank) return;
+  bankFlow[bank] = (bankFlow[bank] || 0) + amount;
 }
