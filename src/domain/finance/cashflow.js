@@ -39,6 +39,127 @@ export function isPersistedTransaction(transaction) {
   return Boolean(transaction?.id) && !isGeneratedGhostTransaction(transaction);
 }
 
+const INSTALLMENT_TITLE_PATTERN = /\((\d+)\/(\d+)\)$/;
+
+export function parseInstallmentTitle(title) {
+  if (typeof title !== 'string') return null;
+
+  const match = title.match(INSTALLMENT_TITLE_PATTERN);
+  if (!match) return null;
+
+  const index = Number(match[1]);
+  const total = Number(match[2]);
+
+  if (!Number.isInteger(index) || !Number.isInteger(total) || index < 1 || total < 2 || index > total) {
+    return null;
+  }
+
+  return { index, total };
+}
+
+export function stripInstallmentSuffix(title) {
+  if (typeof title !== 'string') return '';
+  return title.replace(/\s*\(\d+\/\d+\)$/, '');
+}
+
+export function inferInstallmentSeriesInfo(transaction, siblings = []) {
+  const ownMeta = parseInstallmentTitle(transaction?.title);
+  if (ownMeta) {
+    return {
+      isInstallment: true,
+      installmentIndex: ownMeta.index,
+      installmentCount: ownMeta.total
+    };
+  }
+
+  if (!Array.isArray(siblings) || siblings.length < 2) {
+    return { isInstallment: false, installmentIndex: null, installmentCount: 1 };
+  }
+
+  const metas = siblings
+    .map(item => parseInstallmentTitle(item?.title))
+    .filter(Boolean);
+
+  if (metas.length !== siblings.length) {
+    return { isInstallment: false, installmentIndex: null, installmentCount: 1 };
+  }
+
+  const total = metas[0].total;
+  if (!metas.every(meta => meta.total === total)) {
+    return { isInstallment: false, installmentIndex: null, installmentCount: 1 };
+  }
+
+  const ownSiblingMeta = transaction?.id
+    ? metas[siblings.findIndex(item => item.id === transaction.id)]
+    : null;
+
+  return {
+    isInstallment: true,
+    installmentIndex: ownSiblingMeta?.index || null,
+    installmentCount: total
+  };
+}
+
+export function shiftMonthKey(monthKey, offset) {
+  if (typeof monthKey !== 'string' || !/^\d{4}-\d{2}$/.test(monthKey)) return null;
+
+  const [year, month] = monthKey.split('-').map(Number);
+  const date = new Date(Date.UTC(year, (month - 1) + Number(offset || 0), 1));
+  const nextYear = date.getUTCFullYear();
+  const nextMonth = String(date.getUTCMonth() + 1).padStart(2, '0');
+  return `${nextYear}-${nextMonth}`;
+}
+
+export function shiftDatePreservingDay(dateString, offset) {
+  if (typeof dateString !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return null;
+
+  const [year, month, day] = dateString.split('-').map(Number);
+  const targetBase = new Date(Date.UTC(year, (month - 1) + Number(offset || 0), 1));
+  const targetYear = targetBase.getUTCFullYear();
+  const targetMonthIndex = targetBase.getUTCMonth();
+  const lastDay = new Date(Date.UTC(targetYear, targetMonthIndex + 1, 0)).getUTCDate();
+  const targetDay = String(Math.min(day, lastDay)).padStart(2, '0');
+  const targetMonth = String(targetMonthIndex + 1).padStart(2, '0');
+
+  return `${targetYear}-${targetMonth}-${targetDay}`;
+}
+
+export function getMonthOffset(fromDate, toDate) {
+  if (
+    typeof fromDate !== 'string'
+    || typeof toDate !== 'string'
+    || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate)
+    || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)
+  ) {
+    return 0;
+  }
+
+  const [fromYear, fromMonth] = fromDate.split('-').map(Number);
+  const [toYear, toMonth] = toDate.split('-').map(Number);
+
+  return ((toYear - fromYear) * 12) + (toMonth - fromMonth);
+}
+
+export function buildInstallmentPlan({ amount, date, installments, title, isCard, invoiceMonth }) {
+  const totalInstallments = Math.max(Number(installments) || 1, 1);
+  const totalAmount = Number(amount) || 0;
+  const amountPerInstallment = totalAmount / totalInstallments;
+
+  return Array.from({ length: totalInstallments }, (_, index) => ({
+    index: index + 1,
+    total: totalInstallments,
+    title: totalInstallments > 1 ? `${title} (${index + 1}/${totalInstallments})` : title,
+    amount: amountPerInstallment,
+    date: shiftDatePreservingDay(date, index) || date,
+    invoiceMonth: isCard ? shiftMonthKey(invoiceMonth, index) : null
+  }));
+}
+
+export function hasPaidCardTransactions(transactions) {
+  return Array.isArray(transactions)
+    && transactions.some(transaction => isCardExpenseTransaction(transaction) && !transaction.isProjection);
+}
+
 export function filterCardInvoiceItemForPayment(transaction, { profile, viewMode }) {
   if (!isCardExpenseTransaction(transaction) || !transaction.isProjection || transaction.isSettlement) return false;
   if (transaction.ownerId !== profile) return false;

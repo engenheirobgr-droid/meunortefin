@@ -1,12 +1,20 @@
 import assert from 'node:assert/strict';
 import {
+  buildInstallmentPlan,
   calculateMonthlyCashFlow,
   calculatePreviousBalance,
   filterCardInvoiceItemForPayment,
   filterTransactionByUniverse,
+  getMonthOffset,
+  hasPaidCardTransactions,
+  inferInstallmentSeriesInfo,
   isCardExpenseTransaction,
   isGeneratedGhostTransaction,
   isPersistedTransaction,
+  parseInstallmentTitle,
+  shiftDatePreservingDay,
+  shiftMonthKey,
+  stripInstallmentSuffix,
   normalizeSettlementsForCurrentMonth
 } from '../src/domain/finance/cashflow.js';
 
@@ -48,6 +56,63 @@ const context = { profile: 'bruno', viewMode: 'personal' };
   assert.equal(filterCardInvoiceItemForPayment(paidCard, context), false);
   assert.equal(filterCardInvoiceItemForPayment(myPrivateCard, { profile: 'bruno', viewMode: 'joint' }), false);
   assert.equal(filterCardInvoiceItemForPayment(mySharedCard, { profile: 'bruno', viewMode: 'joint' }), true);
+}
+
+{
+  const siblings = [
+    { id: 'a', title: 'Notebook (1/3)' },
+    { id: 'b', title: 'Notebook (2/3)' },
+    { id: 'c', title: 'Notebook (3/3)' }
+  ];
+
+  assert.deepEqual(parseInstallmentTitle('Notebook (2/3)'), { index: 2, total: 3 });
+  assert.equal(stripInstallmentSuffix('Notebook (2/3)'), 'Notebook');
+  assert.equal(shiftMonthKey('2026-07', 2), '2026-09');
+  assert.equal(shiftDatePreservingDay('2026-01-31', 1), '2026-02-28');
+  assert.equal(getMonthOffset('2026-07-10', '2026-10-02'), 3);
+  assert.deepEqual(
+    inferInstallmentSeriesInfo({ id: 'b', title: 'Notebook (2/3)' }, siblings),
+    { isInstallment: true, installmentIndex: 2, installmentCount: 3 }
+  );
+}
+
+{
+  const plan = buildInstallmentPlan({
+    amount: 900,
+    date: '2026-07-15',
+    installments: 3,
+    title: 'Notebook',
+    isCard: true,
+    invoiceMonth: '2026-08'
+  });
+
+  assert.deepEqual(plan.map(item => item.title), [
+    'Notebook (1/3)',
+    'Notebook (2/3)',
+    'Notebook (3/3)'
+  ]);
+  assert.deepEqual(plan.map(item => item.date), [
+    '2026-07-15',
+    '2026-08-15',
+    '2026-09-15'
+  ]);
+  assert.deepEqual(plan.map(item => item.invoiceMonth), [
+    '2026-08',
+    '2026-09',
+    '2026-10'
+  ]);
+  assert.deepEqual(plan.map(item => item.amount), [300, 300, 300]);
+}
+
+{
+  assert.equal(hasPaidCardTransactions([
+    { isCardExpense: true, isProjection: true },
+    { isCardExpense: true, isProjection: false }
+  ]), true);
+  assert.equal(hasPaidCardTransactions([
+    { isCardExpense: true, isProjection: true },
+    { type: 'expense', amount: 100 }
+  ]), false);
 }
 
 {

@@ -232,7 +232,11 @@ export default function TransactionModal({
                                             return opts;
                                         })()}
                                     </select>
-                                    <p className="text-[10px] text-sky-400/60 mt-2">A compra aparece agora, o saldo so cai ao pagar a fatura.</p>
+                                    <p className="text-[10px] text-sky-400/60 mt-2">
+                                        {isInstallment
+                                            ? 'Cada parcela entra na fatura do seu mes. Ao quitar, ela consolida no mes da propria parcela.'
+                                            : 'A compra aparece agora e consolida quando a fatura for quitada.'}
+                                    </p>
                                 </div>
                             )}
                         </div>

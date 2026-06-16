@@ -4,12 +4,19 @@ import * as XLSX from 'xlsx';
 import * as pdfjsLib from 'pdfjs-dist';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import {
+    buildInstallmentPlan,
     calculateMonthlyCashFlow,
     calculatePreviousBalance,
     filterCardInvoiceItemForPayment,
+    getMonthOffset,
+    hasPaidCardTransactions,
+    inferInstallmentSeriesInfo,
     isCardExpenseTransaction,
     isGeneratedGhostTransaction,
     isPersistedTransaction,
+    parseInstallmentTitle,
+    shiftMonthKey,
+    stripInstallmentSuffix,
     filterTransactionByUniverse,
     normalizeSettlementsForCurrentMonth
 } from './domain/finance/cashflow.js';
@@ -202,6 +209,29 @@ const getGreeting = () => {
 
         // AUTOCOMPLETE DATA MEMOS
         const uniqueTitles = useMemo(() => [...new Set(txs.map(t => t.title))].sort(), [txs]);
+
+        const sanitizePayload = (payload) => {
+            const next = { ...payload };
+            Object.keys(next).forEach(key => next[key] === undefined && delete next[key]);
+            return next;
+        };
+
+        const getSeriesSiblings = (transaction) => (
+            transaction?.groupId
+                ? txs.filter(item => item.groupId === transaction.groupId)
+                : []
+        );
+
+        const warnIfHistoricalCardImpact = (transactions, actionLabel) => {
+            if (!hasPaidCardTransactions(transactions)) return true;
+
+            return confirm(
+                `${actionLabel}\n\n` +
+                `Algumas parcelas dessa ação já foram quitadas.\n` +
+                `Se continuar, o histórico dos meses passados será recalculado.\n\n` +
+                `Deseja continuar?`
+            );
+        };
         const uniqueBanks = useMemo(() => [...new Set(txs.map(t => t.bank).filter(Boolean))].sort(), [txs]); // M1
         const uniqueMarkets = useMemo(() => [...new Set(txs.map(t => t.market).filter(Boolean))].sort(), [txs]);
 
@@ -454,7 +484,9 @@ const getGreeting = () => {
                     if (!isFuture) {
                         if (isExpenseLike) {
                             if (iPaid) upToMonthCredit += half; else upToMonthDebt += half;
-                        } else {
+                            const nextTitle = (isInstallmentSeries && titleMeta)
+                                ? `${fTitle} (${titleMeta.index}/${normalizedInstallments})`
+                                : (fTitle || 'Sem titulo');
                             if (iPaid) upToMonthDebt += half; else upToMonthCredit += half;
                         }
                     }
@@ -1457,6 +1489,11 @@ const getGreeting = () => {
                 relatedTxs.forEach(t => finalIdsToDelete.add(t.id));
             }
 
+            const finalTxs = txs.filter(t => finalIdsToDelete.has(t.id));
+            if (!warnIfHistoricalCardImpact(finalTxs, 'Esta exclusão vai alterar parcelas já quitadas.')) {
+                return;
+            }
+
             // 4. Executa Batch Delete
             const batch = db.batch();
             finalIdsToDelete.forEach(id => {
@@ -1560,11 +1597,20 @@ const getGreeting = () => {
             // Card expenses are intentional ghosts — they ARE editable. Only block pure projection ghosts (recurring).
             setEditingId(isGeneratedGhostTransaction(tx) ? null : tx.id);
 
-            setFTitle(tx.title);
-            setFAmount(tx.amount);
+            const siblings = getSeriesSiblings(tx);
+            const installmentInfo = inferInstallmentSeriesInfo(tx, siblings);
+            const installmentSeriesTotal = installmentInfo.isInstallment
+                ? siblings.reduce((sum, sibling) => sum + Number(sibling.amount || 0), 0)
+                : Number(tx.amount || 0);
+            const baseTitle = installmentInfo.isInstallment ? stripInstallmentSuffix(tx.title) : tx.title;
+
+            setFTitle(baseTitle);
+            setFAmount(installmentSeriesTotal);
             setFType(tx.type);
             setFCat(tx.category);
             setFSubCat(tx.subCategory || '');
+            setIsInstallment(installmentInfo.isInstallment);
+            setInstallments(installmentInfo.installmentCount);
 
             // FASE 3: Recorrência e Sonho
             setFRecurrent(tx.isRecurrent || false);
@@ -1632,9 +1678,12 @@ const getGreeting = () => {
 
                 // FASE 2: GERAÇÃO DE DNA (GroupId)
                 // Se for recorrente ou parcelado (mais de 1x), cria um ID de grupo único
-                const newGroupId = (fRecurrent || (isInstallment && installments > 1))
+                const normalizedInstallments = Math.max(Number(installments) || 0, 0);
+                const isInstallmentSeries = isInstallment && normalizedInstallments > 1;
+                const newGroupId = (fRecurrent || isInstallmentSeries)
                     ? `grp_${new Date().getTime()}_${Math.random().toString(36).substr(2, 9)}`
                     : null;
+                const nowIso = new Date().toISOString();
 
                 // Payload base (Dados comuns)
                 const payload = {
@@ -1674,45 +1723,100 @@ const getGreeting = () => {
                 // Remove undefined keys just in case
                 Object.keys(payload).forEach(key => payload[key] === undefined && delete payload[key]);
 
+                const commonFields = sanitizePayload({
+                    type: payload.type,
+                    category: payload.category,
+                    subCategory: payload.subCategory,
+                    isShared: payload.isShared,
+                    payer: payload.payer,
+                    ownerId: payload.ownerId,
+                    userId: payload.userId,
+                    isSettlement: payload.isSettlement,
+                    market: payload.market,
+                    bank: payload.bank,
+                    quantity: payload.quantity,
+                    unitPrice: payload.unitPrice,
+                    isRecurrent: payload.isRecurrent,
+                    recurrenceEndMode: payload.recurrenceEndMode,
+                    recurrenceEndDate: payload.recurrenceEndDate,
+                    recurrenceCount: payload.recurrenceCount,
+                    dreamId: payload.dreamId
+                });
+
+                const buildCreatePayload = ({ title, amount, date, invoiceMonth, groupIdOverride, isProjectionOverride }) => sanitizePayload({
+                    ...commonFields,
+                    title,
+                    amount,
+                    date,
+                    groupId: groupIdOverride,
+                    isProjection: isProjectionOverride ?? (fIsCard ? true : (fIsProjection || false)),
+                    isCardExpense: fIsCard || false,
+                    invoiceMonth: fIsCard ? invoiceMonth : null
+                });
+
                 if (editingId) {
                     const docRef = collectionRef.doc(editingId);
 
                     // --- 4. TRATAMENTO DE EDIÇÃO (COM ESCOPO) ---
                     const originalTx = txs.find(t => t.id === editingId);
-                    const siblings = (originalTx && originalTx.groupId) ? txs.filter(t => t.groupId === originalTx.groupId) : [];
+                    const siblings = getSeriesSiblings(originalTx);
+                    const installmentInfo = inferInstallmentSeriesInfo(originalTx, siblings);
+                    const wasInstallmentSeries = installmentInfo.isInstallment;
+
+                    if (wasInstallmentSeries && !isInstallmentSeries) {
+                        alert('Para transformar uma compra parcelada em lancamento unico, exclua a serie e recrie a compra.');
+                        return;
+                    }
 
                     // Detecta Mudança Estrutural (Resize ou Conversão Single -> Installment)
                     // É Resize se: É parcelado E (não tinha grupo OU contagem mudou)
-                    const isStructuralChange = isInstallment && (!originalTx?.groupId || siblings.length !== Number(installments));
+                    const isStructuralChange = isInstallmentSeries
+                        && (!wasInstallmentSeries || installmentInfo.installmentCount !== normalizedInstallments);
 
-                    if (isStructuralChange && installments > 1) {
+                    if (isStructuralChange) {
+                        const orderedSiblings = [...siblings].sort((a, b) => a.date.localeCompare(b.date));
+                        const firstSibling = orderedSiblings[0] || originalTx;
+                        const structuralTargets = siblings.length > 0 ? siblings : [originalTx];
+                        const structuralBaseDate = wasInstallmentSeries ? firstSibling?.date : (fDate || new Date().toISOString().split('T')[0]);
+                        const structuralBaseInvoiceMonth = fIsCard
+                            ? (wasInstallmentSeries ? (firstSibling?.invoiceMonth || fInvoiceMonth) : fInvoiceMonth)
+                            : null;
+                        const structuralSeriesGroupId = originalTx?.groupId || newGroupId;
+                        const structuralPlan = buildInstallmentPlan({
+                            amount: Number(fAmount) || 0,
+                            date: structuralBaseDate,
+                            installments: normalizedInstallments,
+                            title: fTitle || 'Sem titulo',
+                            isCard: fIsCard,
+                            invoiceMonth: structuralBaseInvoiceMonth
+                        });
+
+                        if (!warnIfHistoricalCardImpact(structuralTargets, 'Esta alteracao vai recriar a serie parcelada.')) {
+                            return;
+                        }
                         // --- FLUXO DE RESIZE/RECRIAÇÃO (Mantido) ---
                         // Se mudou a estrutura (ex: 3x para 5x), apaga tudo e recria.
                         if (originalTx && originalTx.groupId) {
                             siblings.filter(s => s.id !== editingId).forEach(s => batch.delete(collectionRef.doc(s.id)));
                         }
-                        const valPerInst = Number(fAmount) / installments;
-                        const [y, m, d] = fDate.split('-').map(Number);
+                        const [firstEntry, ...otherEntries] = structuralPlan;
+                        batch.update(docRef, buildCreatePayload({
+                            ...firstEntry,
+                            groupIdOverride: structuralSeriesGroupId,
+                            isProjectionOverride: orderedSiblings[0]?.isProjection ?? originalTx?.isProjection
+                        }));
 
-                        const firstPayload = {
-                            ...payload,
-                            title: `${fTitle} (1/${installments})`,
-                            amount: valPerInst,
-                        };
-                        batch.update(docRef, firstPayload);
-
-                        for (let i = 1; i < installments; i++) {
+                        for (const [entryIndex, entry] of otherEntries.entries()) {
                             const newDocRef = collectionRef.doc();
-                            const dateObj = new Date(y, (m - 1) + i, d);
                             const nextPayload = {
-                                ...payload,
-                                title: `${fTitle} (${i + 1}/${installments})`,
-                                amount: valPerInst,
-                                date: dateObj.toISOString().split('T')[0],
-                                createdAt: new Date().toISOString(),
+                                ...buildCreatePayload({
+                                    ...entry,
+                                    groupIdOverride: structuralSeriesGroupId,
+                                    isProjectionOverride: orderedSiblings[entryIndex + 1]?.isProjection
+                                }),
+                                createdAt: nowIso,
                                 items: []
                             };
-                            Object.keys(nextPayload).forEach(key => nextPayload[key] === undefined && delete nextPayload[key]);
                             batch.set(newDocRef, nextPayload);
                         }
 
@@ -1732,59 +1836,90 @@ const getGreeting = () => {
                             else if (choice !== '1') return; // Cancelar
                         }
 
-                        // Prepara payload de atualização (Remove groupId novo para não quebrar o link existente)
-                        const { groupId, ...baseUpdate } = payload;
-
-                        // Executa baseada no escopo
-                        if (editScope === 'single') {
-                            // Edita só esta (Mantém groupId original)
-                            batch.update(docRef, baseUpdate);
-                        } else {
-                            // Edita em Lote
-                            const targets = editScope === 'all'
+                        // Resolve os alvos antes de atualizar para manter o mesmo contrato em single/future/all.
+                        const targets = editScope === 'single'
+                            ? [originalTx]
+                            : (editScope === 'all'
                                 ? siblings
-                                : siblings.filter(t => t.date >= originalTx.date);
+                                : siblings.filter(t => t.date >= originalTx.date));
 
-                            targets.forEach(t => {
-                                // Preserva índice do título se for parcelado
-                                let newTitle = fTitle;
-                                if (t.title.match(/\(\d+\/\d+\)$/)) {
-                                    const match = t.title.match(/\((\d+)\/(\d+)\)$/);
-                                    if (match) newTitle = `${fTitle} (${match[1]}/${match[2]})`;
-                                }
-
-                                const batchUpdate = { ...baseUpdate, title: newTitle };
-
-                                // PROTEÇÃO DE DATA:
-                                // Não altera a data dos irmãos, apenas do editado (se mudou)
-                                if (t.id !== editingId) {
-                                    delete batchUpdate.date;
-                                }
-
-                                batch.update(collectionRef.doc(t.id), batchUpdate);
-                            });
+                        if (!warnIfHistoricalCardImpact(targets, 'Esta edicao vai alterar parcelas ja quitadas.')) {
+                            return;
                         }
-                    }
-                } else {
-                    if (isInstallment && installments > 1) {
-                        const valPerInst = Number(fAmount) / installments;
-                        const [y, m, d] = fDate.split('-').map(Number);
-                        for (let i = 0; i < installments; i++) {
-                            const docRef = collectionRef.doc();
-                            const dateObj = new Date(y, (m - 1) + i, d);
-                            batch.set(docRef, {
-                                ...payload,
-                                title: `${fTitle} (${i + 1}/${installments})`,
-                                amount: valPerInst,
-                                date: dateObj.toISOString().split('T')[0],
-                                createdAt: new Date().toISOString(),
-                                items: []
+
+                        const perInstallmentAmount = isInstallmentSeries
+                            ? (Number(fAmount) || 0) / normalizedInstallments
+                            : (Number(fAmount) || 0);
+
+                        // Reaplica a série mantendo status de quitação e fatura por parcela.
+                        targets.forEach(target => {
+                            const titleMeta = parseInstallmentTitle(target.title);
+                            const targetDate = target.id === editingId
+                                ? (fDate || target.date)
+                                : target.date;
+                            const monthOffset = getMonthOffset(originalTx.date, targetDate);
+                            const nextTitle = (isInstallmentSeries && titleMeta)
+                                ? `${fTitle} (${titleMeta.index}/${normalizedInstallments})`
+                                : (fTitle || 'Sem titulo');
+                            const nextInvoiceMonth = fIsCard
+                                ? (
+                                    isInstallmentSeries
+                                        ? shiftMonthKey(fInvoiceMonth || target.invoiceMonth || originalTx.invoiceMonth, monthOffset)
+                                        : (fInvoiceMonth || target.invoiceMonth || null)
+                                )
+                                : null;
+                            const nextProjection = fIsCard
+                                ? (isCardExpenseTransaction(target) ? Boolean(target.isProjection) : true)
+                                : false;
+
+                            const batchUpdate = sanitizePayload({
+                                ...commonFields,
+                                title: nextTitle,
+                                amount: perInstallmentAmount,
+                                date: targetDate,
+                                isProjection: nextProjection,
+                                isCardExpense: fIsCard || false,
+                                invoiceMonth: nextInvoiceMonth
                             });
+
+                            batch.update(collectionRef.doc(target.id), batchUpdate);
+                        });
+
                         }
-                    } else {
+                } else if (isInstallmentSeries) {
+                    const installmentPlan = buildInstallmentPlan({
+                        amount: Number(fAmount) || 0,
+                        date: fDate || new Date().toISOString().split('T')[0],
+                        installments: normalizedInstallments,
+                        title: fTitle || 'Sem titulo',
+                        isCard: fIsCard,
+                        invoiceMonth: fInvoiceMonth
+                    });
+
+                    installmentPlan.forEach(entry => {
                         const docRef = collectionRef.doc();
-                        batch.set(docRef, { ...payload, createdAt: new Date().toISOString(), items: [] });
-                    }
+                        batch.set(docRef, {
+                            ...buildCreatePayload({
+                                ...entry,
+                                groupIdOverride: newGroupId
+                            }),
+                            createdAt: nowIso,
+                            items: []
+                        });
+                    });
+                } else {
+                    const docRef = collectionRef.doc();
+                    batch.set(docRef, {
+                        ...buildCreatePayload({
+                            title: fTitle || 'Sem titulo',
+                            amount: Number(fAmount) || 0,
+                            date: fDate || new Date().toISOString().split('T')[0],
+                            invoiceMonth: fInvoiceMonth,
+                            groupIdOverride: newGroupId
+                        }),
+                        createdAt: nowIso,
+                        items: []
+                    });
                 }
 
                 await batch.commit();
