@@ -484,9 +484,7 @@ const getGreeting = () => {
                     if (!isFuture) {
                         if (isExpenseLike) {
                             if (iPaid) upToMonthCredit += half; else upToMonthDebt += half;
-                            const nextTitle = (isInstallmentSeries && titleMeta)
-                                ? `${fTitle} (${titleMeta.index}/${normalizedInstallments})`
-                                : (fTitle || 'Sem titulo');
+                        } else {
                             if (iPaid) upToMonthDebt += half; else upToMonthCredit += half;
                         }
                     }
